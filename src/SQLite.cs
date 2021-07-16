@@ -35,7 +35,6 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
 using System.Threading;
-
 #if USE_CSHARP_SQLITE
 using Sqlite3 = Community.CsharpSqlite.Sqlite3;
 using Sqlite3DatabaseHandle = Community.CsharpSqlite.Sqlite3.sqlite3;
@@ -49,6 +48,11 @@ using Sqlite3DatabaseHandle = SQLitePCL.sqlite3;
 using Sqlite3BackupHandle = SQLitePCL.sqlite3_backup;
 using Sqlite3Statement = SQLitePCL.sqlite3_stmt;
 using Sqlite3 = SQLitePCL.raw;
+using Sqlite3Context = SQLitePCL.sqlite3_context;
+using Sqlite3Value = SQLitePCL.sqlite3_value;
+using SQLiteCallbackScalar = SQLitePCL.delegate_function_scalar;
+using SqliteCallbackAggregateStep = SQLitePCL.delegate_function_aggregate_step;
+using SqliteCallbackAggregateFinal = SQLitePCL.delegate_function_aggregate_final;
 #else
 using Sqlite3DatabaseHandle = System.IntPtr;
 using Sqlite3BackupHandle = System.IntPtr;
@@ -175,8 +179,8 @@ namespace SQLite
 		private Random _rand = new Random ();
 
 		public Sqlite3DatabaseHandle Handle { get; private set; }
-		static readonly Sqlite3DatabaseHandle NullHandle = default (Sqlite3DatabaseHandle);
-		static readonly Sqlite3BackupHandle NullBackupHandle = default (Sqlite3BackupHandle);
+		static readonly Sqlite3DatabaseHandle NullHandle = default(Sqlite3DatabaseHandle);
+		static readonly Sqlite3BackupHandle NullBackupHandle = default(Sqlite3BackupHandle);
 
 		/// <summary>
 		/// Gets the database path used by this connection.
@@ -248,7 +252,8 @@ namespace SQLite
 		/// the storeDateTimeAsTicks parameter.
 		/// </param>
 		public SQLiteConnection (string databasePath, bool storeDateTimeAsTicks = true)
-			: this (new SQLiteConnectionString (databasePath, SQLiteOpenFlags.ReadWrite | SQLiteOpenFlags.Create, storeDateTimeAsTicks))
+			: this (new SQLiteConnectionString (databasePath, SQLiteOpenFlags.ReadWrite | SQLiteOpenFlags.Create,
+				storeDateTimeAsTicks))
 		{
 		}
 
@@ -283,7 +288,7 @@ namespace SQLite
 		public SQLiteConnection (SQLiteConnectionString connectionString)
 		{
 			if (connectionString == null)
-				throw new ArgumentNullException (nameof (connectionString));
+				throw new ArgumentNullException (nameof(connectionString));
 			if (connectionString.DatabasePath == null)
 				throw new InvalidOperationException ("DatabasePath must be specified");
 
@@ -298,19 +303,23 @@ namespace SQLite
 			Sqlite3DatabaseHandle handle;
 
 #if SILVERLIGHT || USE_CSHARP_SQLITE || USE_SQLITEPCL_RAW
-			var r = SQLite3.Open (connectionString.DatabasePath, out handle, (int)connectionString.OpenFlags, connectionString.VfsName);
+			var r = SQLite3.Open (connectionString.DatabasePath, out handle, (int)connectionString.OpenFlags,
+				connectionString.VfsName);
 #else
 			// open using the byte[]
 			// in the case where the path may include Unicode
 			// force open to using UTF-8 using sqlite3_open_v2
 			var databasePathAsBytes = GetNullTerminatedUtf8 (connectionString.DatabasePath);
-			var r = SQLite3.Open (databasePathAsBytes, out handle, (int)connectionString.OpenFlags, connectionString.VfsName);
+			var r =
+ SQLite3.Open (databasePathAsBytes, out handle, (int)connectionString.OpenFlags, connectionString.VfsName);
 #endif
 
 			Handle = handle;
 			if (r != SQLite3.Result.OK) {
-				throw SQLiteException.New (r, String.Format ("Could not open database file: {0} ({1})", DatabasePath, r));
+				throw SQLiteException.New (r,
+					String.Format ("Could not open database file: {0} ({1})", DatabasePath, r));
 			}
+
 			_open = true;
 
 			StoreDateTimeAsTicks = connectionString.StoreDateTimeAsTicks;
@@ -331,6 +340,7 @@ namespace SQLite
 			else if (connectionString.Key != null) {
 				throw new InvalidOperationException ("Encryption keys must be strings or byte arrays");
 			}
+
 			connectionString.PostKeyAction?.Invoke (this);
 		}
 
@@ -368,7 +378,7 @@ namespace SQLite
 		void SetKey (string key)
 		{
 			if (key == null)
-				throw new ArgumentNullException (nameof (key));
+				throw new ArgumentNullException (nameof(key));
 			var q = Quote (key);
 			Execute ("pragma key = " + q);
 		}
@@ -383,9 +393,9 @@ namespace SQLite
 		void SetKey (byte[] key)
 		{
 			if (key == null)
-				throw new ArgumentNullException (nameof (key));
+				throw new ArgumentNullException (nameof(key));
 			if (key.Length != 32)
-				throw new ArgumentException ("Key must be 32 bytes (256-bit)", nameof (key));
+				throw new ArgumentException ("Key must be 32 bytes (256-bit)", nameof(key));
 			var s = String.Join ("", key.Select (x => x.ToString ("X2")));
 			Execute ("pragma key = \"x'" + s + "'\"");
 		}
@@ -467,6 +477,7 @@ namespace SQLite
 					_mappings.Add (key, map);
 				}
 			}
+
 			return map;
 		}
 
@@ -482,7 +493,7 @@ namespace SQLite
 		/// </returns>
 		public TableMapping GetMapping<T> (CreateFlags createFlags = CreateFlags.None)
 		{
-			return GetMapping (typeof (T), createFlags);
+			return GetMapping (typeof(T), createFlags);
 		}
 
 		private struct IndexedColumn
@@ -504,7 +515,7 @@ namespace SQLite
 		/// </summary>
 		public int DropTable<T> ()
 		{
-			return DropTable (GetMapping (typeof (T)));
+			return DropTable (GetMapping (typeof(T)));
 		}
 
 		/// <summary>
@@ -530,7 +541,7 @@ namespace SQLite
 		/// </returns>
 		public CreateTableResult CreateTable<T> (CreateFlags createFlags = CreateFlags.None)
 		{
-			return CreateTable (typeof (T), createFlags);
+			return CreateTable (typeof(T), createFlags);
 		}
 
 		/// <summary>
@@ -550,7 +561,8 @@ namespace SQLite
 
 			// Present a nice error if no columns specified
 			if (map.Columns.Length == 0) {
-				throw new Exception (string.Format ("Cannot create a table without columns (does '{0}' have public properties?)", ty.FullName));
+				throw new Exception (string.Format (
+					"Cannot create a table without columns (does '{0}' have public properties?)", ty.FullName));
 			}
 
 			// Check if the table exists
@@ -600,12 +612,10 @@ namespace SQLite
 					}
 
 					if (i.Unique != iinfo.Unique)
-						throw new Exception ("All the columns in an index must have the same value for their Unique property");
+						throw new Exception (
+							"All the columns in an index must have the same value for their Unique property");
 
-					iinfo.Columns.Add (new IndexedColumn {
-						Order = i.Order,
-						ColumnName = c.Name
-					});
+					iinfo.Columns.Add (new IndexedColumn {Order = i.Order, ColumnName = c.Name});
 				}
 			}
 
@@ -628,10 +638,10 @@ namespace SQLite
 		/// Whether the table was created or migrated for each type.
 		/// </returns>
 		public CreateTablesResult CreateTables<T, T2> (CreateFlags createFlags = CreateFlags.None)
-			where T : new()
-			where T2 : new()
+			where T : new ()
+			where T2 : new ()
 		{
-			return CreateTables (createFlags, typeof (T), typeof (T2));
+			return CreateTables (createFlags, typeof(T), typeof(T2));
 		}
 
 		/// <summary>
@@ -644,11 +654,11 @@ namespace SQLite
 		/// Whether the table was created or migrated for each type.
 		/// </returns>
 		public CreateTablesResult CreateTables<T, T2, T3> (CreateFlags createFlags = CreateFlags.None)
-			where T : new()
-			where T2 : new()
-			where T3 : new()
+			where T : new ()
+			where T2 : new ()
+			where T3 : new ()
 		{
-			return CreateTables (createFlags, typeof (T), typeof (T2), typeof (T3));
+			return CreateTables (createFlags, typeof(T), typeof(T2), typeof(T3));
 		}
 
 		/// <summary>
@@ -661,12 +671,12 @@ namespace SQLite
 		/// Whether the table was created or migrated for each type.
 		/// </returns>
 		public CreateTablesResult CreateTables<T, T2, T3, T4> (CreateFlags createFlags = CreateFlags.None)
-			where T : new()
-			where T2 : new()
-			where T3 : new()
-			where T4 : new()
+			where T : new ()
+			where T2 : new ()
+			where T3 : new ()
+			where T4 : new ()
 		{
-			return CreateTables (createFlags, typeof (T), typeof (T2), typeof (T3), typeof (T4));
+			return CreateTables (createFlags, typeof(T), typeof(T2), typeof(T3), typeof(T4));
 		}
 
 		/// <summary>
@@ -679,13 +689,13 @@ namespace SQLite
 		/// Whether the table was created or migrated for each type.
 		/// </returns>
 		public CreateTablesResult CreateTables<T, T2, T3, T4, T5> (CreateFlags createFlags = CreateFlags.None)
-			where T : new()
-			where T2 : new()
-			where T3 : new()
-			where T4 : new()
-			where T5 : new()
+			where T : new ()
+			where T2 : new ()
+			where T3 : new ()
+			where T4 : new ()
+			where T5 : new ()
 		{
-			return CreateTables (createFlags, typeof (T), typeof (T2), typeof (T3), typeof (T4), typeof (T5));
+			return CreateTables (createFlags, typeof(T), typeof(T2), typeof(T3), typeof(T4), typeof(T5));
 		}
 
 		/// <summary>
@@ -704,6 +714,7 @@ namespace SQLite
 				var aResult = CreateTable (type, createFlags);
 				result.Results[type] = aResult;
 			}
+
 			return result;
 		}
 
@@ -718,7 +729,8 @@ namespace SQLite
 		public int CreateIndex (string indexName, string tableName, string[] columnNames, bool unique = false)
 		{
 			const string sqlFormat = "create {2} index if not exists \"{3}\" on \"{0}\"(\"{1}\")";
-			var sql = String.Format (sqlFormat, tableName, string.Join ("\", \"", columnNames), unique ? "unique" : "", indexName);
+			var sql = String.Format (sqlFormat, tableName, string.Join ("\", \"", columnNames), unique ? "unique" : "",
+				indexName);
 			return Execute (sql);
 		}
 
@@ -732,7 +744,7 @@ namespace SQLite
 		/// <returns>Zero on success.</returns>
 		public int CreateIndex (string indexName, string tableName, string columnName, bool unique = false)
 		{
-			return CreateIndex (indexName, tableName, new string[] { columnName }, unique);
+			return CreateIndex (indexName, tableName, new string[] {columnName}, unique);
 		}
 
 		/// <summary>
@@ -776,6 +788,7 @@ namespace SQLite
 			else {
 				mx = (property.Body as MemberExpression);
 			}
+
 			var propertyInfo = mx.Member as PropertyInfo;
 			if (propertyInfo == null) {
 				throw new ArgumentException ("The lambda expression 'property' should point to a valid Property");
@@ -794,8 +807,7 @@ namespace SQLite
 		{
 			//			public int cid { get; set; }
 
-			[Column ("name")]
-			public string Name { get; set; }
+			[Column ("name")] public string Name { get; set; }
 
 			//			[Column ("type")]
 			//			public string ColumnType { get; set; }
@@ -834,13 +846,15 @@ namespace SQLite
 					if (found)
 						break;
 				}
+
 				if (!found) {
 					toBeAdded.Add (p);
 				}
 			}
 
 			foreach (var p in toBeAdded) {
-				var addCol = "alter table \"" + map.TableName + "\" add column " + Orm.SqlDecl (p, StoreDateTimeAsTicks, StoreTimeSpanAsTicks);
+				var addCol = "alter table \"" + map.TableName + "\" add column " +
+				             Orm.SqlDecl (p, StoreDateTimeAsTicks, StoreTimeSpanAsTicks);
 				Execute (addCol);
 			}
 		}
@@ -877,6 +891,7 @@ namespace SQLite
 			foreach (var o in ps) {
 				cmd.Bind (o);
 			}
+
 			return cmd;
 		}
 
@@ -904,6 +919,7 @@ namespace SQLite
 			foreach (var kv in args) {
 				cmd.Bind (kv.Key, kv.Value);
 			}
+
 			return cmd;
 		}
 
@@ -932,6 +948,7 @@ namespace SQLite
 				if (_sw == null) {
 					_sw = new Stopwatch ();
 				}
+
 				_sw.Reset ();
 				_sw.Start ();
 			}
@@ -941,7 +958,8 @@ namespace SQLite
 			if (TimeExecution) {
 				_sw.Stop ();
 				_elapsedMilliseconds += _sw.ElapsedMilliseconds;
-				Tracer?.Invoke (string.Format ("Finished in {0} ms ({1:0.0} s total)", _sw.ElapsedMilliseconds, _elapsedMilliseconds / 1000.0));
+				Tracer?.Invoke (string.Format ("Finished in {0} ms ({1:0.0} s total)", _sw.ElapsedMilliseconds,
+					_elapsedMilliseconds / 1000.0));
 			}
 
 			return r;
@@ -971,6 +989,7 @@ namespace SQLite
 				if (_sw == null) {
 					_sw = new Stopwatch ();
 				}
+
 				_sw.Reset ();
 				_sw.Start ();
 			}
@@ -980,7 +999,8 @@ namespace SQLite
 			if (TimeExecution) {
 				_sw.Stop ();
 				_elapsedMilliseconds += _sw.ElapsedMilliseconds;
-				Tracer?.Invoke (string.Format ("Finished in {0} ms ({1:0.0} s total)", _sw.ElapsedMilliseconds, _elapsedMilliseconds / 1000.0));
+				Tracer?.Invoke (string.Format ("Finished in {0} ms ({1:0.0} s total)", _sw.ElapsedMilliseconds,
+					_elapsedMilliseconds / 1000.0));
 			}
 
 			return r;
@@ -1001,7 +1021,7 @@ namespace SQLite
 		/// <returns>
 		/// An enumerable with one result for each row returned by the query.
 		/// </returns>
-		public List<T> Query<T> (string query, params object[] args) where T : new()
+		public List<T> Query<T> (string query, params object[] args) where T : new ()
 		{
 			var cmd = CreateCommand (query, args);
 			return cmd.ExecuteQuery<T> ();
@@ -1045,7 +1065,7 @@ namespace SQLite
 		/// will call sqlite3_step on each call to MoveNext, so the database
 		/// connection must remain open for the lifetime of the enumerator.
 		/// </returns>
-		public IEnumerable<T> DeferredQuery<T> (string query, params object[] args) where T : new()
+		public IEnumerable<T> DeferredQuery<T> (string query, params object[] args) where T : new ()
 		{
 			var cmd = CreateCommand (query, args);
 			return cmd.ExecuteDeferredQuery<T> ();
@@ -1113,7 +1133,7 @@ namespace SQLite
 		/// A queryable object that is able to translate Where, OrderBy, and Take
 		/// queries into native SQL.
 		/// </returns>
-		public TableQuery<T> Table<T> () where T : new()
+		public TableQuery<T> Table<T> () where T : new ()
 		{
 			return new TableQuery<T> (this);
 		}
@@ -1130,9 +1150,9 @@ namespace SQLite
 		/// The object with the given primary key. Throws a not found exception
 		/// if the object is not found.
 		/// </returns>
-		public T Get<T> (object pk) where T : new()
+		public T Get<T> (object pk) where T : new ()
 		{
-			var map = GetMapping (typeof (T));
+			var map = GetMapping (typeof(T));
 			return Query<T> (map.GetByPrimaryKeySql, pk).First ();
 		}
 
@@ -1167,7 +1187,7 @@ namespace SQLite
 		/// The object that matches the given predicate. Throws a not found exception
 		/// if the object is not found.
 		/// </returns>
-		public T Get<T> (Expression<Func<T, bool>> predicate) where T : new()
+		public T Get<T> (Expression<Func<T, bool>> predicate) where T : new ()
 		{
 			return Table<T> ().Where (predicate).First ();
 		}
@@ -1184,9 +1204,9 @@ namespace SQLite
 		/// The object with the given primary key or null
 		/// if the object is not found.
 		/// </returns>
-		public T Find<T> (object pk) where T : new()
+		public T Find<T> (object pk) where T : new ()
 		{
-			var map = GetMapping (typeof (T));
+			var map = GetMapping (typeof(T));
 			return Query<T> (map.GetByPrimaryKeySql, pk).FirstOrDefault ();
 		}
 
@@ -1221,7 +1241,7 @@ namespace SQLite
 		/// The object that matches the given predicate or null
 		/// if the object is not found.
 		/// </returns>
-		public T Find<T> (Expression<Func<T, bool>> predicate) where T : new()
+		public T Find<T> (Expression<Func<T, bool>> predicate) where T : new ()
 		{
 			return Table<T> ().Where (predicate).FirstOrDefault ();
 		}
@@ -1240,7 +1260,7 @@ namespace SQLite
 		/// The object that matches the given predicate or null
 		/// if the object is not found.
 		/// </returns>
-		public T FindWithQuery<T> (string query, params object[] args) where T : new()
+		public T FindWithQuery<T> (string query, params object[] args) where T : new ()
 		{
 			return Query<T> (query, args).FirstOrDefault ();
 		}
@@ -1434,6 +1454,7 @@ namespace SQLite
 						// rollback can fail in all sorts of wonderful version-dependent ways. Let's just hope for the best
 					}
 				}
+
 				throw;
 			}
 		}
@@ -1460,7 +1481,8 @@ namespace SQLite
 				}
 			}
 
-			throw new ArgumentException ("savePoint is not valid, and should be the result of a call to SaveTransactionPoint.", "savePoint");
+			throw new ArgumentException (
+				"savePoint is not valid, and should be the result of a call to SaveTransactionPoint.", "savePoint");
 		}
 
 		/// <summary>
@@ -1482,6 +1504,7 @@ namespace SQLite
 					catch {
 						// rollback can fail in all sorts of wonderful version-dependent ways. Let's just hope for the best
 					}
+
 					throw;
 				}
 			}
@@ -1537,6 +1560,7 @@ namespace SQLite
 					c += Insert (r);
 				}
 			}
+
 			return c;
 		}
 
@@ -1570,6 +1594,7 @@ namespace SQLite
 					c += Insert (r, extra);
 				}
 			}
+
 			return c;
 		}
 
@@ -1603,6 +1628,7 @@ namespace SQLite
 					c += Insert (r, objType);
 				}
 			}
+
 			return c;
 		}
 
@@ -1622,6 +1648,7 @@ namespace SQLite
 			if (obj == null) {
 				return 0;
 			}
+
 			return Insert (obj, "", Orm.GetType (obj));
 		}
 
@@ -1644,6 +1671,7 @@ namespace SQLite
 			if (obj == null) {
 				return 0;
 			}
+
 			return Insert (obj, "OR REPLACE", Orm.GetType (obj));
 		}
 
@@ -1707,6 +1735,7 @@ namespace SQLite
 			if (obj == null) {
 				return 0;
 			}
+
 			return Insert (obj, extra, Orm.GetType (obj));
 		}
 
@@ -1762,6 +1791,7 @@ namespace SQLite
 					if (SQLite3.ExtendedErrCode (this.Handle) == SQLite3.ExtendedResult.ConstraintNotNull) {
 						throw NotNullConstraintViolationException.New (ex.Result, ex.Message, map, obj);
 					}
+
 					throw;
 				}
 
@@ -1770,13 +1800,15 @@ namespace SQLite
 					map.SetAutoIncPK (obj, id);
 				}
 			}
+
 			if (count > 0)
 				OnTableChanged (map, NotifyTableChangedAction.Insert);
 
 			return count;
 		}
 
-		readonly Dictionary<Tuple<string, string>, PreparedSqlLiteInsertCommand> _insertCommandMap = new Dictionary<Tuple<string, string>, PreparedSqlLiteInsertCommand> ();
+		readonly Dictionary<Tuple<string, string>, PreparedSqlLiteInsertCommand> _insertCommandMap =
+			new Dictionary<Tuple<string, string>, PreparedSqlLiteInsertCommand> ();
 
 		PreparedSqlLiteInsertCommand GetInsertCommand (TableMapping map, string extra)
 		{
@@ -1819,10 +1851,10 @@ namespace SQLite
 				}
 
 				insertSql = string.Format ("insert {3} into \"{0}\"({1}) values ({2})", map.TableName,
-								   string.Join (",", (from c in cols
-													  select "\"" + c.Name + "\"").ToArray ()),
-								   string.Join (",", (from c in cols
-													  select "?").ToArray ()), extra);
+					string.Join (",", (from c in cols
+						select "\"" + c.Name + "\"").ToArray ()),
+					string.Join (",", (from c in cols
+						select "?").ToArray ()), extra);
 
 			}
 
@@ -1846,6 +1878,7 @@ namespace SQLite
 			if (obj == null) {
 				return 0;
 			}
+
 			return Update (obj, Orm.GetType (obj));
 		}
 
@@ -1879,29 +1912,32 @@ namespace SQLite
 			}
 
 			var cols = from p in map.Columns
-					   where p != pk
-					   select p;
+				where p != pk
+				select p;
 			var vals = from c in cols
-					   select c.GetValue (obj);
+				select c.GetValue (obj);
 			var ps = new List<object> (vals);
 			if (ps.Count == 0) {
 				// There is a PK but no accompanying data,
 				// so reset the PK to make the UPDATE work.
 				cols = map.Columns;
 				vals = from c in cols
-					   select c.GetValue (obj);
+					select c.GetValue (obj);
 				ps = new List<object> (vals);
 			}
+
 			ps.Add (pk.GetValue (obj));
-			var q = string.Format ("update \"{0}\" set {1} where {2} = ? ", map.TableName, string.Join (",", (from c in cols
-																											  select "\"" + c.Name + "\" = ? ").ToArray ()), pk.Name);
+			var q = string.Format ("update \"{0}\" set {1} where {2} = ? ", map.TableName, string.Join (",",
+				(from c in cols
+					select "\"" + c.Name + "\" = ? ").ToArray ()), pk.Name);
 
 			try {
 				rowsAffected = Execute (q, ps.ToArray ());
 			}
 			catch (SQLiteException ex) {
 
-				if (ex.Result == SQLite3.Result.Constraint && SQLite3.ExtendedErrCode (this.Handle) == SQLite3.ExtendedResult.ConstraintNotNull) {
+				if (ex.Result == SQLite3.Result.Constraint && SQLite3.ExtendedErrCode (this.Handle) ==
+					SQLite3.ExtendedResult.ConstraintNotNull) {
 					throw NotNullConstraintViolationException.New (ex, map, obj);
 				}
 
@@ -1941,6 +1977,7 @@ namespace SQLite
 					c += Update (r);
 				}
 			}
+
 			return c;
 		}
 
@@ -1960,6 +1997,7 @@ namespace SQLite
 			if (pk == null) {
 				throw new NotSupportedException ("Cannot delete " + map.TableName + ": it has no PK");
 			}
+
 			var q = string.Format ("delete from \"{0}\" where \"{1}\" = ?", map.TableName, pk.Name);
 			var count = Execute (q, pk.GetValue (objectToDelete));
 			if (count > 0)
@@ -1981,7 +2019,7 @@ namespace SQLite
 		/// </typeparam>
 		public int Delete<T> (object primaryKey)
 		{
-			return Delete (primaryKey, GetMapping (typeof (T)));
+			return Delete (primaryKey, GetMapping (typeof(T)));
 		}
 
 		/// <summary>
@@ -2002,6 +2040,7 @@ namespace SQLite
 			if (pk == null) {
 				throw new NotSupportedException ("Cannot delete " + map.TableName + ": it has no PK");
 			}
+
 			var q = string.Format ("delete from \"{0}\" where \"{1}\" = ?", map.TableName, pk.Name);
 			var count = Execute (q, primaryKey);
 			if (count > 0)
@@ -2022,7 +2061,7 @@ namespace SQLite
 		/// </typeparam>
 		public int DeleteAll<T> ()
 		{
-			var map = GetMapping (typeof (T));
+			var map = GetMapping (typeof(T));
 			return DeleteAll (map);
 		}
 
@@ -2083,6 +2122,472 @@ namespace SQLite
 				throw SQLiteException.New (r, msg);
 			}
 		}
+
+#if USE_CSHARP_SQLITE || USE_WP8_NATIVE_SQLITE || USE_SQLITEPCL_RAW
+
+		/// <summary>
+		/// Add your Custom function to sql 
+		/// </summary>
+		/// <param name="name">Your function name</param>
+		/// <param name="state">User-data that</param>
+		/// <param name="callback">Your function definition</param>
+		public void RegisterFunction<TResult> (string name, object state, Func<object, TResult> callback)
+		{
+			SQLite3.CreateFunction (Handle,
+				name, 0, 1, state,
+				(context, userData, args) => {
+					if (args.Length != 0)
+						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
+					SetReturnValue (context, callback (userData));
+				});
+		}
+
+		/// <summary>
+		/// Add your Custom function to sql 
+		/// </summary>
+		/// <param name="name">Your function name</param>
+		/// <param name="state">User-data that</param>
+		/// <param name="callback">Your function definition</param>
+		public void RegisterFunction<T, TResult> (string name, object state, Func<T, object, TResult> callback)
+		{
+			SQLite3.CreateFunction (Handle,
+				name, 0, 1, state,
+				(context, userData, args) => {
+					if (args.Length != 1)
+						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
+					SetReturnValue (context, callback (ConvertParams<T> (args[0]), userData));
+				});
+		}
+
+		/// <summary>
+		/// Add your Custom function to sql 
+		/// </summary>
+		/// <param name="name">Your function name</param>
+		/// <param name="state">User-data that</param>
+		/// <param name="callback">Your function definition</param>
+		public void RegisterFunction<T1, T2, TResult> (string name, object state, Func<T1, T2, object, TResult> callback)
+		{
+			SQLite3.CreateFunction (Handle,
+				name, 0, 1, state,
+				(context, userData, args) => {
+					if (args.Length != 2)
+						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
+					SetReturnValue (context, callback (
+						ConvertParams<T1> (args[0]),
+						ConvertParams<T2> (args[1]),
+						userData));
+				});
+		}
+
+		/// <summary>
+		/// Add your Custom function to sql 
+		/// </summary>
+		/// <param name="name">Your function name</param>
+		/// <param name="state">User-data that</param>
+		/// <param name="callback">Your function definition</param>
+		public void RegisterFunction<T1, T2, T3, TResult> (string name, object state, Func<T1, T2, T3, object, TResult> callback)
+		{
+			SQLite3.CreateFunction (Handle,
+				name, 0, 1, state,
+				(context, userData, args) => {
+					if (args.Length != 3)
+						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
+					SetReturnValue (context, callback (
+						ConvertParams<T1> (args[0]),
+						ConvertParams<T2> (args[1]),
+						ConvertParams<T3> (args[2]),
+						userData));
+				});
+		}
+
+		/// <summary>
+		/// Add your Custom function to sql 
+		/// </summary>
+		/// <param name="name">Your function name</param>
+		/// <param name="state">User-data that</param>
+		/// <param name="callback">Your function definition</param>
+		public void RegisterFunction<T1, T2, T3, T4, TResult> (string name, object state, Func<T1, T2, T3, T4, object, TResult> callback)
+		{
+			SQLite3.CreateFunction (Handle,
+				name, 0, 1, state,
+				(context, userData, args) => {
+					if (args.Length != 4)
+						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
+					SetReturnValue (context, callback (
+						ConvertParams<T1> (args[0]),
+						ConvertParams<T2> (args[1]),
+						ConvertParams<T3> (args[2]),
+						ConvertParams<T4> (args[3]),
+						userData));
+				});
+		}
+
+		/// <summary>
+		/// Add your Custom function to sql 
+		/// </summary>
+		/// <param name="name">Your function name</param>
+		/// <param name="state">User-data that</param>
+		/// <param name="callback">Your function definition</param>
+		public void RegisterFunction<T1, T2, T3, T4, T5, TResult> (string name, 
+			object state,
+			Func<T1, T2, T3, T4, T5, object, TResult> callback)
+		{
+			SQLite3.CreateFunction (Handle,
+				name, 0, 1, state,
+				(context, userData, args) => {
+					if (args.Length != 5)
+						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
+					SetReturnValue (context, callback (
+						ConvertParams<T1> (args[0]),
+						ConvertParams<T2> (args[1]),
+						ConvertParams<T3> (args[2]),
+						ConvertParams<T4> (args[3]),
+						ConvertParams<T5> (args[4]),
+						userData));
+				});
+		}
+
+		/// <summary>
+		/// Add your Custom function to sql 
+		/// </summary>
+		/// <param name="name">Your function name</param>
+		/// <param name="state">User-data that</param>
+		/// <param name="step">Aggregate step</param>
+		/// <param name="finished">prepare result and return</param>
+		public void RegisterAggregateFunction<TResult> (
+			string name, 
+			object state,
+			Action<object> step,
+			Func<object, TResult> finished)
+		{
+			SQLite3.CreateFunction (Handle,
+				name, 0, 1, state,
+				(context, userData, args) => {
+					if (args.Length != 0)
+						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
+					step (userData);
+				},
+				(context, userData) => {
+					SetReturnValue (context, finished(userData));
+				});
+		}
+		
+		/// <summary>
+		/// Add your Custom function to sql 
+		/// </summary>
+		/// <param name="name">Your function name</param>
+		/// <param name="state">User-data that</param>
+		/// <param name="step">Aggregate step</param>
+		/// <param name="finished">prepare result and return</param>
+		public void RegisterAggregateFunction<T1, TResult> (
+			string name, 
+			object state,
+			Action<T1, object> step,
+			Func<object, TResult> finished)
+		{
+			SQLite3.CreateFunction (Handle,
+				name, 0, 1, state,
+				(context, userData, args) => {
+					if (args.Length != 1)
+						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
+					step (
+						ConvertParams<T1> (args[0]),
+						userData);
+				},
+				(context, userData) => {
+					SetReturnValue (context, finished(userData));
+				});
+		}
+		
+		/// <summary>
+		/// Add your Custom function to sql 
+		/// </summary>
+		/// <param name="name">Your function name</param>
+		/// <param name="state">User-data that</param>
+		/// <param name="step">Aggregate step</param>
+		/// <param name="finished">prepare result and return</param>
+		public void RegisterAggregateFunction<T1, T2, TResult> (
+			string name, 
+			object state,
+			Action<T1, T2, object> step,
+			Func<object, TResult> finished)
+		{
+			SQLite3.CreateFunction (Handle,
+				name, 0, 1, state,
+				(context, userData, args) => {
+					if (args.Length != 2)
+						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
+					step (
+						ConvertParams<T1> (args[0]),
+						ConvertParams<T2> (args[1]),
+						userData);
+				},
+				(context, userData) => {
+					SetReturnValue (context, finished(userData));
+				});
+		}
+
+		/// <summary>
+		/// Add your Custom function to sql 
+		/// </summary>
+		/// <param name="name">Your function name</param>
+		/// <param name="state">User-data that</param>
+		/// <param name="step">Aggregate step</param>
+		/// <param name="finished">prepare result and return</param>
+		public void RegisterAggregateFunction<T1, T2, T3, TResult> (
+			string name, 
+			object state,
+			Action<T1, T2, T3, object> step,
+			Func<object, TResult> finished)
+		{
+			SQLite3.CreateFunction (Handle,
+				name, 0, 1, state,
+				(context, userData, args) => {
+					if (args.Length != 3)
+						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
+					step (
+						ConvertParams<T1> (args[0]),
+						ConvertParams<T2> (args[1]),
+						ConvertParams<T3> (args[2]),
+						userData);
+				},
+				(context, userData) => {
+					SetReturnValue (context, finished(userData));
+				});
+		}
+
+		/// <summary>
+		/// Add your Custom function to sql 
+		/// </summary>
+		/// <param name="name">Your function name</param>
+		/// <param name="state">User-data that</param>
+		/// <param name="step">Aggregate step</param>
+		/// <param name="finished">prepare result and return</param>
+		public void RegisterAggregateFunction<T1, T2, T3, T4, TResult> (
+			string name, 
+			object state,
+			Action<T1, T2, T3, T4, object> step,
+			Func<object, TResult> finished)
+		{
+			SQLite3.CreateFunction (Handle,
+				name, 0, 1, state,
+				(context, userData, args) => {
+					if (args.Length != 4)
+						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
+					step (
+						ConvertParams<T1> (args[0]),
+						ConvertParams<T2> (args[1]),
+						ConvertParams<T3> (args[2]),
+						ConvertParams<T4> (args[3]),
+						userData);
+				},
+				(context, userData) => {
+					SetReturnValue (context, finished(userData));
+				});
+		}
+		
+		/// <summary>
+		/// Add your Custom function to sql 
+		/// </summary>
+		/// <param name="name">Your function name</param>
+		/// <param name="state">User-data that</param>
+		/// <param name="step">Aggregate step</param>
+		/// <param name="finished">prepare result and return</param>
+		public void RegisterAggregateFunction<T1, T2, T3, T4, T5, TResult> (
+			string name, 
+			object state,
+			Action<T1, T2, T3, T4, T5, object> step,
+			Func<object, TResult> finished)
+		{
+			SQLite3.CreateFunction (Handle,
+				name, 0, 1, state,
+				(context, userData, args) => {
+					if (args.Length != 5)
+						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
+					step (
+						ConvertParams<T1> (args[0]),
+						ConvertParams<T2> (args[1]),
+						ConvertParams<T3> (args[2]),
+						ConvertParams<T4> (args[3]),
+						ConvertParams<T5> (args[4]),
+						userData);
+				},
+				(context, userData) => {
+					SetReturnValue (context, finished(userData));
+				});
+		}
+
+		private void SetReturnValue (Sqlite3Context context, object returnValue)
+		{
+			if (returnValue == null || returnValue == DBNull.Value) {
+				SQLite3.ResultNull (context);
+				return;
+			}
+
+			if (returnValue is DateTime datetime) {
+				if (StoreDateTimeAsTicks) {
+					SQLite3.ResultInt64 (context, datetime.Ticks);
+				}
+				else {
+					SQLite3.ResultText (context,
+						datetime.ToString (DateTimeStringFormat, System.Globalization.CultureInfo.InvariantCulture));
+				}
+
+				return;
+			}
+
+			if (returnValue is TimeSpan timeSpan) {
+				if (StoreTimeSpanAsTicks) {
+					SQLite3.ResultInt64 (context, timeSpan.Ticks);
+				}
+				else {
+					SQLite3.ResultText (context, timeSpan.ToString ());
+				}
+
+				return;
+			}
+
+			if (returnValue is Exception r) {
+				SQLite3.ResultError (context, r.Message);
+				return;
+			}
+
+			switch (TypeToColType (returnValue.GetType ())) {
+				case SQLite3.ColType.Null:
+					SQLite3.ResultNull (context);
+					return;
+				case SQLite3.ColType.Integer:
+					SQLite3.ResultInt64 (context,
+						Convert.ToInt64 (returnValue, System.Globalization.CultureInfo.CurrentCulture));
+					return;
+				case SQLite3.ColType.Float:
+					SQLite3.ResultDouble (context,
+						Convert.ToDouble (returnValue, System.Globalization.CultureInfo.CurrentCulture));
+					return;
+				case SQLite3.ColType.Text:
+					SQLite3.ResultText (context, returnValue.ToString ());
+					return;
+				case SQLite3.ColType.Blob:
+					byte[] blob_buff = (byte[])returnValue;
+					SQLite3.ResultBlob (context, blob_buff);
+					return;
+			}
+		}
+
+		private SQLite3.ColType TypeToColType (Type typ)
+		{
+			var tc = Type.GetTypeCode (typ);
+			if (tc == TypeCode.Object) {
+				if (typ == typeof(byte[]) || typ == typeof(Guid))
+					return SQLite3.ColType.Blob;
+
+				return SQLite3.ColType.Text;
+			}
+
+			return _typecodeColTypes[(int)tc];
+		}
+
+		private readonly SQLite3.ColType[] _typecodeColTypes = {
+			SQLite3.ColType.Null, SQLite3.ColType.Blob, SQLite3.ColType.Null, SQLite3.ColType.Integer,
+			SQLite3.ColType.Integer, SQLite3.ColType.Integer, SQLite3.ColType.Integer, SQLite3.ColType.Integer, // 7
+			SQLite3.ColType.Integer, SQLite3.ColType.Integer, SQLite3.ColType.Integer, SQLite3.ColType.Integer, // 11
+			SQLite3.ColType.Integer, SQLite3.ColType.Float, SQLite3.ColType.Float, SQLite3.ColType.Float,
+			SQLite3.ColType.Text, // Datetime
+			SQLite3.ColType.Null, SQLite3.ColType.Text,
+		};
+
+		public T ConvertParams<T> (Sqlite3Value arg)
+		{
+			switch (SQLite3.GetParamValueType (arg)) {
+				case SQLite3.ColType.Null:
+					return default;
+				case SQLite3.ColType.Integer: {
+					var intValue = SQLite3.GetParamValueInt64 (arg);
+					if (intValue is T tResult) return tResult;
+					var clrType = typeof(T);
+
+					if (clrType == typeof(TimeSpan)) {
+						if (StoreTimeSpanAsTicks) {
+							return (T)(object)(new TimeSpan (intValue));
+						}
+					}
+					else if (clrType == typeof(DateTime)) {
+						if (StoreDateTimeAsTicks) {
+							return (T)(object)(new DateTime (intValue));
+						}
+					}
+					else if (clrType == typeof(DateTimeOffset)) {
+						return (T)(object)(new DateTimeOffset (intValue, TimeSpan.Zero));
+					}
+
+					//Enum is supported in change type
+					return (T)Convert.ChangeType (intValue, typeof(T));
+				}
+				case SQLite3.ColType.Float:
+					var floatValue = SQLite3.GetParamValueDouble (arg);
+					if (floatValue is T floatResult) return floatResult;
+					return (T)Convert.ChangeType (floatValue, typeof(T));
+
+				case SQLite3.ColType.Text: {
+					var strValue = SQLite3.GetParamValueText (arg);
+					if (strValue is T strResult) return strResult;
+
+					var clrType = typeof(T);
+					if (clrType == typeof(TimeSpan)) {
+						if (!StoreTimeSpanAsTicks) {
+							TimeSpan resultTime;
+							if (!TimeSpan.TryParseExact (
+								strValue,
+								"c",
+								System.Globalization.CultureInfo.InvariantCulture,
+								System.Globalization.TimeSpanStyles.None,
+								out resultTime)) {
+
+								resultTime = TimeSpan.Parse (strValue);
+							}
+
+							return (T)(object)resultTime;
+						}
+					}
+					else if (clrType == typeof(DateTime)) {
+						if (!StoreDateTimeAsTicks) {
+							DateTime resultDate;
+							if (!DateTime.TryParseExact (
+								strValue,
+								DateTimeStringFormat,
+								System.Globalization.CultureInfo.InvariantCulture,
+								DateTimeStyle,
+								out resultDate)) {
+								resultDate = DateTime.Parse (strValue);
+							}
+
+							return (T)(object)resultDate;
+						}
+					}
+
+					var clrTypeInfo = clrType.GetTypeInfo ();
+					if (clrTypeInfo.IsEnum) {
+						return (T)Enum.Parse (clrType, strValue, true);
+					}
+
+					return (T)Convert.ChangeType (strValue, typeof(T));
+				}
+
+				case SQLite3.ColType.Blob: {
+					var buffer = SQLite3.GetParamValueBlob (arg);
+
+					var byteArray = buffer.ToArray ();
+					if ((object)byteArray is T t)
+						return t;
+
+					throw new AggregateException ("Type of blob must be byte[]");
+				}
+				default:
+					throw new ArgumentOutOfRangeException ();
+			}
+		}
+
+#endif
 
 		~SQLiteConnection ()
 		{
@@ -4758,6 +5263,88 @@ namespace SQLite
 		{
 			return (Result)Sqlite3.sqlite3_backup_finish (backup);
 		}
+
+		public static int CreateFunction (
+			Sqlite3DatabaseHandle stmt,
+			string strName,
+			int nArgs,
+			int nType,
+			object state,
+			SqliteCallbackAggregateStep step,
+			SqliteCallbackAggregateFinal final)
+		{
+			return Sqlite3.sqlite3_create_function (stmt, strName, nArgs, nType, state, step, final);
+		}
+
+		public static int CreateFunction (
+	        Sqlite3DatabaseHandle stmt,
+	        string strName,
+	        int nArgs,
+	        int nType,
+	        object state,
+	        SQLiteCallbackScalar callback)
+        {
+	        return Sqlite3.sqlite3_create_function (stmt, strName, nArgs, nType, state, callback);
+        }
+
+        public static ColType GetParamValueType (Sqlite3Value value)
+        {
+			return (ColType)Sqlite3.sqlite3_value_type(value);
+        }
+        
+        public static long GetParamValueInt64 (Sqlite3Value p)
+        {
+	        return Sqlite3.sqlite3_value_int64(p);
+        }
+
+        public static double GetParamValueDouble (Sqlite3Value p)
+        {
+	        return Sqlite3.sqlite3_value_double(p);
+        }
+
+        public static string GetParamValueText (Sqlite3Value p)
+        {
+	        return Sqlite3.sqlite3_value_text (p).utf8_to_string ();
+        }
+
+        public static int GetParamValueBytes (Sqlite3Value p)
+        {
+	        return Sqlite3.sqlite3_value_bytes(p);
+        }
+
+        public static ReadOnlySpan<byte> GetParamValueBlob (Sqlite3Value p)
+        {
+	        return Sqlite3.sqlite3_value_blob(p);
+        }
+
+        public static void ResultNull (Sqlite3Context context)
+        {
+	        Sqlite3.sqlite3_result_null (context);
+        }
+        public static void ResultText (Sqlite3Context context, string value)
+        {
+	        Sqlite3.sqlite3_result_text (context, value);
+        }
+
+        public static void ResultError (Sqlite3Context context, string strErr)
+        {
+	        Sqlite3.sqlite3_result_error (context, strErr);
+        }
+
+        public static void ResultInt64 (Sqlite3Context context, long value)
+        {
+	        Sqlite3.sqlite3_result_int64 (context, value);
+        }
+
+        public static void ResultDouble (Sqlite3Context context, double value)
+        {
+	        Sqlite3.sqlite3_result_double (context, value);
+        }
+        
+        public static void ResultBlob (Sqlite3Context context, byte[] value)
+        {
+	        Sqlite3.sqlite3_result_blob (context, value);
+        }
 #endif
 
 		public enum ColType : int
