@@ -2151,7 +2151,7 @@ namespace SQLite
 		public void RegisterFunction<T, TResult> (string name, object state, Func<T, object, TResult> callback)
 		{
 			SQLite3.CreateFunction (Handle,
-				name, 0, 1, state,
+				name, 1, 1, state,
 				(context, userData, args) => {
 					if (args.Length != 1)
 						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
@@ -2168,7 +2168,7 @@ namespace SQLite
 		public void RegisterFunction<T1, T2, TResult> (string name, object state, Func<T1, T2, object, TResult> callback)
 		{
 			SQLite3.CreateFunction (Handle,
-				name, 0, 1, state,
+				name, 2, 1, state,
 				(context, userData, args) => {
 					if (args.Length != 2)
 						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
@@ -2188,7 +2188,7 @@ namespace SQLite
 		public void RegisterFunction<T1, T2, T3, TResult> (string name, object state, Func<T1, T2, T3, object, TResult> callback)
 		{
 			SQLite3.CreateFunction (Handle,
-				name, 0, 1, state,
+				name, 3, 1, state,
 				(context, userData, args) => {
 					if (args.Length != 3)
 						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
@@ -2209,7 +2209,7 @@ namespace SQLite
 		public void RegisterFunction<T1, T2, T3, T4, TResult> (string name, object state, Func<T1, T2, T3, T4, object, TResult> callback)
 		{
 			SQLite3.CreateFunction (Handle,
-				name, 0, 1, state,
+				name, 4, 1, state,
 				(context, userData, args) => {
 					if (args.Length != 4)
 						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
@@ -2233,7 +2233,7 @@ namespace SQLite
 			Func<T1, T2, T3, T4, T5, object, TResult> callback)
 		{
 			SQLite3.CreateFunction (Handle,
-				name, 0, 1, state,
+				name, 5, 1, state,
 				(context, userData, args) => {
 					if (args.Length != 5)
 						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
@@ -2286,7 +2286,7 @@ namespace SQLite
 			Func<object, TResult> finished)
 		{
 			SQLite3.CreateFunction (Handle,
-				name, 0, 1, state,
+				name, 1, 1, state,
 				(context, userData, args) => {
 					if (args.Length != 1)
 						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
@@ -2313,7 +2313,7 @@ namespace SQLite
 			Func<object, TResult> finished)
 		{
 			SQLite3.CreateFunction (Handle,
-				name, 0, 1, state,
+				name, 2, 1, state,
 				(context, userData, args) => {
 					if (args.Length != 2)
 						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
@@ -2341,7 +2341,7 @@ namespace SQLite
 			Func<object, TResult> finished)
 		{
 			SQLite3.CreateFunction (Handle,
-				name, 0, 1, state,
+				name, 3, 1, state,
 				(context, userData, args) => {
 					if (args.Length != 3)
 						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
@@ -2370,7 +2370,7 @@ namespace SQLite
 			Func<object, TResult> finished)
 		{
 			SQLite3.CreateFunction (Handle,
-				name, 0, 1, state,
+				name, 4, 1, state,
 				(context, userData, args) => {
 					if (args.Length != 4)
 						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
@@ -2400,7 +2400,7 @@ namespace SQLite
 			Func<object, TResult> finished)
 		{
 			SQLite3.CreateFunction (Handle,
-				name, 0, 1, state,
+				name, 5, 1, state,
 				(context, userData, args) => {
 					if (args.Length != 5)
 						SetReturnValue (context, new Exception ($"Method '{name}' with {args.Length} is miss match"));
