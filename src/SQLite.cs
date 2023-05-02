@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2009-2019 Krueger Systems, Inc.
+// Copyright (c) 2009-2021 Krueger Systems, Inc.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -163,11 +163,109 @@ namespace SQLite
 		FullTextSearch4 = 0x200
 	}
 
+	public interface ISQLiteConnection
+	{
+		Sqlite3DatabaseHandle Handle { get; }
+		string DatabasePath { get; }
+		int LibVersionNumber { get; }
+		bool TimeExecution { get; set; }
+		bool Trace { get; set; }
+		Action<string> Tracer { get; set; }
+		bool StoreDateTimeAsTicks { get; }
+		bool StoreTimeSpanAsTicks { get; }
+		string DateTimeStringFormat { get; }
+		TimeSpan BusyTimeout { get; set; }
+		IEnumerable<TableMapping> TableMappings { get; }
+		bool IsInTransaction { get; }
+
+		event EventHandler<NotifyTableChangedEventArgs> TableChanged;
+
+		void Backup (string destinationDatabasePath, string databaseName = "main");
+		void BeginTransaction ();
+		void Close ();
+		void Commit ();
+		SQLiteCommand CreateCommand (string cmdText, params object[] ps);
+		SQLiteCommand CreateCommand (string cmdText, Dictionary<string, object> args);
+		int CreateIndex (string indexName, string tableName, string[] columnNames, bool unique = false);
+		int CreateIndex (string indexName, string tableName, string columnName, bool unique = false);
+		int CreateIndex (string tableName, string columnName, bool unique = false);
+		int CreateIndex (string tableName, string[] columnNames, bool unique = false);
+		int CreateIndex<T> (Expression<Func<T, object>> property, bool unique = false);
+		CreateTableResult CreateTable<T> (CreateFlags createFlags = CreateFlags.None);
+		CreateTableResult CreateTable (Type ty, CreateFlags createFlags = CreateFlags.None);
+		CreateTablesResult CreateTables<T, T2> (CreateFlags createFlags = CreateFlags.None)
+			where T : new()
+			where T2 : new();
+		CreateTablesResult CreateTables<T, T2, T3> (CreateFlags createFlags = CreateFlags.None)
+			where T : new()
+			where T2 : new()
+			where T3 : new();
+		CreateTablesResult CreateTables<T, T2, T3, T4> (CreateFlags createFlags = CreateFlags.None)
+			where T : new()
+			where T2 : new()
+			where T3 : new()
+			where T4 : new();
+		CreateTablesResult CreateTables<T, T2, T3, T4, T5> (CreateFlags createFlags = CreateFlags.None)
+			where T : new()
+			where T2 : new()
+			where T3 : new()
+			where T4 : new()
+			where T5 : new();
+		CreateTablesResult CreateTables (CreateFlags createFlags = CreateFlags.None, params Type[] types);
+		IEnumerable<T> DeferredQuery<T> (string query, params object[] args) where T : new();
+		IEnumerable<object> DeferredQuery (TableMapping map, string query, params object[] args);
+		int Delete (object objectToDelete);
+		int Delete<T> (object primaryKey);
+		int Delete (object primaryKey, TableMapping map);
+		int DeleteAll<T> ();
+		int DeleteAll (TableMapping map);
+		void Dispose ();
+		int DropTable<T> ();
+		int DropTable (TableMapping map);
+		void EnableLoadExtension (bool enabled);
+		void EnableWriteAheadLogging ();
+		int Execute (string query, params object[] args);
+		T ExecuteScalar<T> (string query, params object[] args);
+		T Find<T> (object pk) where T : new();
+		object Find (object pk, TableMapping map);
+		T Find<T> (Expression<Func<T, bool>> predicate) where T : new();
+		T FindWithQuery<T> (string query, params object[] args) where T : new();
+		object FindWithQuery (TableMapping map, string query, params object[] args);
+		T Get<T> (object pk) where T : new();
+		object Get (object pk, TableMapping map);
+		T Get<T> (Expression<Func<T, bool>> predicate) where T : new();
+		TableMapping GetMapping (Type type, CreateFlags createFlags = CreateFlags.None);
+		TableMapping GetMapping<T> (CreateFlags createFlags = CreateFlags.None);
+		List<SQLiteConnection.ColumnInfo> GetTableInfo (string tableName);
+		int Insert (object obj);
+		int Insert (object obj, Type objType);
+		int Insert (object obj, string extra);
+		int Insert (object obj, string extra, Type objType);
+		int InsertAll (IEnumerable objects, bool runInTransaction = true);
+		int InsertAll (IEnumerable objects, string extra, bool runInTransaction = true);
+		int InsertAll (IEnumerable objects, Type objType, bool runInTransaction = true);
+		int InsertOrReplace (object obj);
+		int InsertOrReplace (object obj, Type objType);
+		List<T> Query<T> (string query, params object[] args) where T : new();
+		List<object> Query (TableMapping map, string query, params object[] args);
+		List<T> QueryScalars<T> (string query, params object[] args);
+		void Release (string savepoint);
+		void Rollback ();
+		void RollbackTo (string savepoint);
+		void RunInTransaction (Action action);
+		string SaveTransactionPoint ();
+		TableQuery<T> Table<T> () where T : new();
+		int Update (object obj);
+		int Update (object obj, Type objType);
+		int UpdateAll (IEnumerable objects, bool runInTransaction = true);
+	}
+
 	/// <summary>
 	/// An open connection to a SQLite database.
 	/// </summary>
 	[Preserve (AllMembers = true)]
 	public partial class SQLiteConnection : IDisposable
+		, ISQLiteConnection
 	{
 		private bool _open;
 		private TimeSpan _busyTimeout;
@@ -380,7 +478,7 @@ namespace SQLite
 			if (key == null)
 				throw new ArgumentNullException (nameof(key));
 			var q = Quote (key);
-			Execute ("pragma key = " + q);
+			ExecuteScalar<string> ("pragma key = " + q);
 		}
 
 		/// <summary>
@@ -393,11 +491,11 @@ namespace SQLite
 		void SetKey (byte[] key)
 		{
 			if (key == null)
-				throw new ArgumentNullException (nameof(key));
-			if (key.Length != 32)
-				throw new ArgumentException ("Key must be 32 bytes (256-bit)", nameof(key));
+				throw new ArgumentNullException (nameof (key));
+			if (key.Length != 32 && key.Length != 48)
+				throw new ArgumentException ("Key must be 32 bytes (256-bit) or 48 bytes (384-bit)", nameof (key));
 			var s = String.Join ("", key.Select (x => x.ToString ("X2")));
-			Execute ("pragma key = \"x'" + s + "'\"");
+			ExecuteScalar<string> ("pragma key = \"x'" + s + "'\"");
 		}
 
 		/// <summary>
@@ -1927,9 +2025,8 @@ namespace SQLite
 			}
 
 			ps.Add (pk.GetValue (obj));
-			var q = string.Format ("update \"{0}\" set {1} where {2} = ? ", map.TableName, string.Join (",",
-				(from c in cols
-					select "\"" + c.Name + "\" = ? ").ToArray ()), pk.Name);
+			var q = string.Format ("update \"{0}\" set {1} where {2} = ? ", map.TableName, string.Join (",", (from c in cols
+																											  select "\"" + c.Name + "\" = ? ").ToArray ()), pk.Name);
 
 			try {
 				rowsAffected = Execute (q, ps.ToArray ());
@@ -2945,6 +3042,8 @@ namespace SQLite
 
 		public CreateFlags CreateFlags { get; private set; }
 
+		internal MapMethod Method { get; private set; } = MapMethod.ByName;
+
 		readonly Column _autoPk;
 		readonly Column[] _insertColumns;
 		readonly Column[] _insertOrReplaceColumns;
@@ -2968,33 +3067,13 @@ namespace SQLite
 			TableName = (tableAttr != null && !string.IsNullOrEmpty (tableAttr.Name)) ? tableAttr.Name : MappedType.Name;
 			WithoutRowId = tableAttr != null ? tableAttr.WithoutRowId : false;
 
-			var props = new List<PropertyInfo> ();
-			var baseType = type;
-			var propNames = new HashSet<string> ();
-			while (baseType != typeof (object)) {
-				var ti = baseType.GetTypeInfo ();
-				var newProps = (
-					from p in ti.DeclaredProperties
-					where
-						!propNames.Contains (p.Name) &&
-						p.CanRead && p.CanWrite &&
-						(p.GetMethod != null) && (p.SetMethod != null) &&
-						(p.GetMethod.IsPublic && p.SetMethod.IsPublic) &&
-						(!p.GetMethod.IsStatic) && (!p.SetMethod.IsStatic)
-					select p).ToList ();
-				foreach (var p in newProps) {
-					propNames.Add (p.Name);
-				}
-				props.AddRange (newProps);
-				baseType = ti.BaseType;
-			}
-
-			var cols = new List<Column> ();
-			foreach (var p in props) {
-				var ignore = p.IsDefined (typeof (IgnoreAttribute), true);
-				if (!ignore) {
-					cols.Add (new Column (p, createFlags));
-				}
+			var members = GetPublicMembers(type);
+			var cols = new List<Column>(members.Count);
+			foreach(var m in members)
+			{
+				var ignore = m.IsDefined(typeof(IgnoreAttribute), true);
+				if(!ignore)
+					cols.Add(new Column(m, createFlags));
 			}
 			Columns = cols.ToArray ();
 			foreach (var c in Columns) {
@@ -3018,6 +3097,51 @@ namespace SQLite
 
 			_insertColumns = Columns.Where (c => !c.IsAutoInc).ToArray ();
 			_insertOrReplaceColumns = Columns.ToArray ();
+		}
+
+		private IReadOnlyCollection<MemberInfo> GetPublicMembers(Type type)
+		{
+			if(type.Name.StartsWith("ValueTuple`"))
+				return GetFieldsFromValueTuple(type);
+
+			var members = new List<MemberInfo>();
+			var memberNames = new HashSet<string>();
+			var newMembers = new List<MemberInfo>();
+			do
+			{
+				var ti = type.GetTypeInfo();
+				newMembers.Clear();
+
+				newMembers.AddRange(
+					from p in ti.DeclaredProperties
+					where !memberNames.Contains(p.Name) &&
+						p.CanRead && p.CanWrite &&
+						p.GetMethod != null && p.SetMethod != null &&
+						p.GetMethod.IsPublic && p.SetMethod.IsPublic &&
+						!p.GetMethod.IsStatic && !p.SetMethod.IsStatic
+					select p);
+
+				members.AddRange(newMembers);
+				foreach(var m in newMembers)
+					memberNames.Add(m.Name);
+
+				type = ti.BaseType;
+			}
+			while(type != typeof(object));
+
+			return members;
+		}
+
+		private IReadOnlyCollection<MemberInfo> GetFieldsFromValueTuple(Type type)
+		{
+			Method = MapMethod.ByPosition;
+			var fields = type.GetFields();
+
+			// https://docs.microsoft.com/en-us/dotnet/api/system.valuetuple-8.rest
+			if(fields.Length >= 8)
+				throw new NotSupportedException("ValueTuple with more than 7 members not supported due to nesting; see https://docs.microsoft.com/en-us/dotnet/api/system.valuetuple-8.rest");
+
+			return fields;
 		}
 
 		public bool HasAutoIncPK { get; private set; }
@@ -3049,19 +3173,22 @@ namespace SQLite
 
 		public Column FindColumn (string columnName)
 		{
+			if(Method != MapMethod.ByName)
+				throw new InvalidOperationException($"This {nameof(TableMapping)} is not mapped by name, but {Method}.");
+
 			var exact = Columns.FirstOrDefault (c => c.Name.ToLower () == columnName.ToLower ());
 			return exact;
 		}
 
 		public class Column
 		{
-			PropertyInfo _prop;
+			MemberInfo _member;
 
 			public string Name { get; private set; }
 
-			public PropertyInfo PropertyInfo => _prop;
+			public PropertyInfo PropertyInfo => _member as PropertyInfo;
 
-			public string PropertyName { get { return _prop.Name; } }
+			public string PropertyName { get { return _member.Name; } }
 
 			public Type ColumnType { get; private set; }
 
@@ -3080,32 +3207,33 @@ namespace SQLite
 
 			public bool StoreAsText { get; private set; }
 
-			public Column (PropertyInfo prop, CreateFlags createFlags = CreateFlags.None)
+			public Column (MemberInfo member, CreateFlags createFlags = CreateFlags.None)
 			{
-				var colAttr = prop.CustomAttributes.FirstOrDefault (x => x.AttributeType == typeof (ColumnAttribute));
+				_member = member;
+				var memberType = GetMemberType(member);
 
-				_prop = prop;
+				var colAttr = member.CustomAttributes.FirstOrDefault (x => x.AttributeType == typeof (ColumnAttribute));
 #if ENABLE_IL2CPP
-                var ca = prop.GetCustomAttribute(typeof(ColumnAttribute)) as ColumnAttribute;
-				Name = ca == null ? prop.Name : ca.Name;
+                var ca = member.GetCustomAttribute(typeof(ColumnAttribute)) as ColumnAttribute;
+				Name = ca == null ? member.Name : ca.Name;
 #else
 				Name = (colAttr != null && colAttr.ConstructorArguments.Count > 0) ?
 						colAttr.ConstructorArguments[0].Value?.ToString () :
-						prop.Name;
+						member.Name;
 #endif
 				//If this type is Nullable<T> then Nullable.GetUnderlyingType returns the T, otherwise it returns null, so get the actual type instead
-				ColumnType = Nullable.GetUnderlyingType (prop.PropertyType) ?? prop.PropertyType;
-				Collation = Orm.Collation (prop);
+				ColumnType = Nullable.GetUnderlyingType (memberType) ?? memberType;
+				Collation = Orm.Collation (member);
 
-				IsPK = Orm.IsPK (prop) ||
+				IsPK = Orm.IsPK (member) ||
 					(((createFlags & CreateFlags.ImplicitPK) == CreateFlags.ImplicitPK) &&
-					 	string.Compare (prop.Name, Orm.ImplicitPkName, StringComparison.OrdinalIgnoreCase) == 0);
+					 	string.Compare (member.Name, Orm.ImplicitPkName, StringComparison.OrdinalIgnoreCase) == 0);
 
-				var isAuto = Orm.IsAutoInc (prop) || (IsPK && ((createFlags & CreateFlags.AutoIncPK) == CreateFlags.AutoIncPK));
+				var isAuto = Orm.IsAutoInc (member) || (IsPK && ((createFlags & CreateFlags.AutoIncPK) == CreateFlags.AutoIncPK));
 				IsAutoGuid = isAuto && ColumnType == typeof (Guid);
 				IsAutoInc = isAuto && !IsAutoGuid;
 
-				Indices = Orm.GetIndices (prop);
+				Indices = Orm.GetIndices (member);
 				if (!Indices.Any ()
 					&& !IsPK
 					&& ((createFlags & CreateFlags.ImplicitIndex) == CreateFlags.ImplicitIndex)
@@ -3113,26 +3241,61 @@ namespace SQLite
 					) {
 					Indices = new IndexedAttribute[] { new IndexedAttribute () };
 				}
-				IsNullable = !(IsPK || Orm.IsMarkedNotNull (prop));
-				MaxStringLength = Orm.MaxStringLength (prop);
+				IsNullable = !(IsPK || Orm.IsMarkedNotNull (member));
+				MaxStringLength = Orm.MaxStringLength (member);
 
-				StoreAsText = prop.PropertyType.GetTypeInfo ().CustomAttributes.Any (x => x.AttributeType == typeof (StoreAsTextAttribute));
+				StoreAsText = memberType.GetTypeInfo ().CustomAttributes.Any (x => x.AttributeType == typeof (StoreAsTextAttribute));
 			}
+
+			public Column (PropertyInfo member, CreateFlags createFlags = CreateFlags.None)
+				: this((MemberInfo)member, createFlags)
+			{ }
 
 			public void SetValue (object obj, object val)
 			{
-				if (val != null && ColumnType.GetTypeInfo ().IsEnum) {
-					_prop.SetValue (obj, Enum.ToObject (ColumnType, val));
+				if(_member is PropertyInfo propy)
+				{
+					if (val != null && ColumnType.GetTypeInfo ().IsEnum)
+						propy.SetValue (obj, Enum.ToObject (ColumnType, val));
+					else
+						propy.SetValue (obj, val);
 				}
-				else {
-					_prop.SetValue (obj, val, null);
+				else if(_member is FieldInfo field)
+				{
+					if (val != null && ColumnType.GetTypeInfo ().IsEnum)
+						field.SetValue (obj, Enum.ToObject (ColumnType, val));
+					else
+						field.SetValue (obj, val);
 				}
+				else
+					throw new InvalidProgramException("unreachable condition");
 			}
 
 			public object GetValue (object obj)
 			{
-				return _prop.GetValue (obj, null);
+				if(_member is PropertyInfo propy)
+					return propy.GetValue(obj);
+				else if(_member is FieldInfo field)
+					return field.GetValue(obj);
+				else
+					throw new InvalidProgramException("unreachable condition");
 			}
+
+			private static Type GetMemberType(MemberInfo m)
+			{
+				switch(m.MemberType)
+				{
+					case MemberTypes.Property: return ((PropertyInfo)m).PropertyType;
+					case MemberTypes.Field: return ((FieldInfo)m).FieldType;
+					default: throw new InvalidProgramException($"{nameof(TableMapping)} supports properties or fields only.");
+				}
+			}
+		}
+
+		internal enum MapMethod
+		{
+			ByName,
+			ByPosition
 		}
 	}
 
@@ -3341,7 +3504,7 @@ namespace SQLite
 #endif
 		}
 
-		public static int? MaxStringLength (PropertyInfo p)
+		public static int? MaxStringLength (MemberInfo p)
 		{
 #if ENABLE_IL2CPP
 			return p.GetCustomAttribute<MaxLengthAttribute> ()?.Value;
@@ -3354,6 +3517,8 @@ namespace SQLite
 			return null;
 #endif
 		}
+
+		public static int? MaxStringLength (PropertyInfo p) => MaxStringLength((MemberInfo)p);
 
 		public static bool IsMarkedNotNull (MemberInfo p)
 		{
@@ -3441,13 +3606,31 @@ namespace SQLite
 			var stmt = Prepare ();
 			try {
 				var cols = new TableMapping.Column[SQLite3.ColumnCount (stmt)];
-				var fastColumnSetters = new Action<T, Sqlite3Statement, int>[SQLite3.ColumnCount (stmt)];
+				var fastColumnSetters = new Action<object, Sqlite3Statement, int>[SQLite3.ColumnCount (stmt)];
 
-				for (int i = 0; i < cols.Length; i++) {
-					var name = SQLite3.ColumnName16 (stmt, i);
-					cols[i] = map.FindColumn (name);
-					if (cols[i] != null)
-						fastColumnSetters[i] = FastColumnSetter.GetFastSetter<T> (_conn, cols[i]);
+				if (map.Method == TableMapping.MapMethod.ByPosition)
+				{
+					Array.Copy(map.Columns, cols, Math.Min(cols.Length, map.Columns.Length));
+				}
+				else if (map.Method == TableMapping.MapMethod.ByName) {
+					MethodInfo getSetter = null;
+					if (typeof(T) != map.MappedType) {
+						getSetter = typeof(FastColumnSetter)
+							.GetMethod (nameof(FastColumnSetter.GetFastSetter),
+								BindingFlags.NonPublic | BindingFlags.Static).MakeGenericMethod (map.MappedType);
+					}
+
+					for (int i = 0; i < cols.Length; i++) {						
+						var name = SQLite3.ColumnName16 (stmt, i);
+						cols[i] = map.FindColumn (name);
+						if (cols[i] != null)
+							if (getSetter != null) {
+								fastColumnSetters[i] = (Action<object, Sqlite3Statement, int>)getSetter.Invoke(null, new object[]{ _conn, cols[i]});
+							}
+							else {
+								fastColumnSetters[i] = FastColumnSetter.GetFastSetter<T>(_conn, cols[i]);
+							}
+					}
 				}
 
 				while (SQLite3.Step (stmt) == SQLite3.Result.Row) {
@@ -3457,7 +3640,7 @@ namespace SQLite
 							continue;
 
 						if (fastColumnSetters[i] != null) {
-							fastColumnSetters[i].Invoke ((T)obj, stmt, i);
+							fastColumnSetters[i].Invoke (obj, stmt, i);
 						}
 						else {
 							var colType = SQLite3.ColumnType (stmt, i);
@@ -3798,9 +3981,9 @@ namespace SQLite
 		///
 		/// If no fast setter is available for the requested column (enums in particular cause headache), then this function returns null.
 		/// </returns>
-		internal static Action<T, Sqlite3Statement, int> GetFastSetter<T> (SQLiteConnection conn, TableMapping.Column column)
+		internal static Action<object, Sqlite3Statement, int> GetFastSetter<T> (SQLiteConnection conn, TableMapping.Column column)
 		{
-			Action<T, Sqlite3Statement, int> fastSetter = null;
+			Action<object, Sqlite3Statement, int> fastSetter = null;
 
 			Type clrType = column.PropertyInfo.PropertyType;
 
@@ -3957,7 +4140,7 @@ namespace SQLite
 		/// <param name="column">The column mapping that identifies the target member of the destination object</param>
 		/// <param name="getColumnValue">A lambda that can be used to retrieve the column value at query-time</param>
 		/// <returns>A strongly-typed delegate</returns>
-		private static Action<ObjectType, Sqlite3Statement, int> CreateNullableTypedSetterDelegate<ObjectType, ColumnMemberType> (TableMapping.Column column, Func<Sqlite3Statement, int, ColumnMemberType> getColumnValue) where ColumnMemberType : struct
+		private static Action<object, Sqlite3Statement, int> CreateNullableTypedSetterDelegate<ObjectType, ColumnMemberType> (TableMapping.Column column, Func<Sqlite3Statement, int, ColumnMemberType> getColumnValue) where ColumnMemberType : struct
 		{
 			var clrTypeInfo = column.PropertyInfo.PropertyType.GetTypeInfo();
 			bool isNullable = false;
@@ -3974,7 +4157,7 @@ namespace SQLite
 				return (o, stmt, i) => {
 					var colType = SQLite3.ColumnType (stmt, i);
 					if (colType != SQLite3.ColType.Null)
-						setProperty.Invoke (o, getColumnValue.Invoke (stmt, i));
+						setProperty.Invoke ((ObjectType)o, getColumnValue.Invoke (stmt, i));
 				};
 			}
 
@@ -3989,7 +4172,7 @@ namespace SQLite
 		/// <param name="column">The column mapping that identifies the target member of the destination object</param>
 		/// <param name="getColumnValue">A lambda that can be used to retrieve the column value at query-time</param>
 		/// <returns>A strongly-typed delegate</returns>
-		private static Action<ObjectType, Sqlite3Statement, int> CreateTypedSetterDelegate<ObjectType, ColumnMemberType> (TableMapping.Column column, Func<Sqlite3Statement, int, ColumnMemberType> getColumnValue)
+		private static Action<object, Sqlite3Statement, int> CreateTypedSetterDelegate<ObjectType, ColumnMemberType> (TableMapping.Column column, Func<Sqlite3Statement, int, ColumnMemberType> getColumnValue)
 		{
 			var setProperty = (Action<ObjectType, ColumnMemberType>)Delegate.CreateDelegate (
 					typeof (Action<ObjectType, ColumnMemberType>), null,
@@ -3998,7 +4181,7 @@ namespace SQLite
 			return (o, stmt, i) => {
 				var colType = SQLite3.ColumnType (stmt, i);
 				if (colType != SQLite3.ColType.Null)
-					setProperty.Invoke (o, getColumnValue.Invoke (stmt, i));
+					setProperty.Invoke ((ObjectType)o, getColumnValue.Invoke (stmt, i));
 			};
 		}
 	}
