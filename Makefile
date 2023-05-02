@@ -1,40 +1,34 @@
 
-DIST = sqlite-net-$(VER)
+SRC=src/SQLite.cs src/SQLiteAsync.cs
 
-CP = cp -Rf
-RM = rm -Rf
+PACKAGES_OUT=$(abspath PackagesOut)
 
-all: examples tests	
+all: test nuget
 
-examples:
-	xbuild examples/Stocks/Stocks.csproj
+test: tests/bin/Release/SQLite.Tests.dll tests/ApiDiff/bin/Release/ApiDiff.exe
+	mono packages/NUnit.ConsoleRunner.3.10.0/tools/nunit3-console.exe tests/bin/Release/SQLite.Tests.dll --labels=On --trace=Info
+	mono tests/ApiDiff/bin/Release/ApiDiff.exe
 
-tests: SQLite.Tests.dll
-	nunit-console2 SQLite.Tests.dll
+tests/bin/Release/SQLite.Tests.dll: tests/SQLite.Tests.csproj $(SRC)
+	nuget restore SQLite.sln
+	msbuild /p:Configuration=Release tests/SQLite.Tests.csproj
 
-SQLite.Tests.dll: tests/BooleanTest.cs src/SQLite.cs
-	gmcs tests/BooleanTest.cs src/SQLite.cs -r:NUnit.Framework -target:library -out:SQLite.Tests.dll
+tests/ApiDiff/bin/Release/ApiDiff.exe: tests/ApiDiff/ApiDiff.csproj $(SRC)
+	msbuild /p:Configuration=Release tests/ApiDiff/ApiDiff.csproj
 
-dist:
-	rm -Rf $(DIST)
-	rm -Rf $(DIST).zip
-	mkdir $(DIST)
-	cp -Rf src/SQLite.cs $(DIST)/
-	cp -Rf src/SQLite.MonoTouchAdmin.cs $(DIST)/
-	cp -Rf readme.txt $(DIST)/
-	rm -Rf $(DIST)/src/.svn
-	cp -Rf examples $(DIST)/
-	rm -Rf $(DIST)/examples/.svn
-	rm -Rf $(DIST)/examples/Stocks/.svn
-	rm -Rf $(DIST)/examples/Stocks/bin
-	rm -Rf $(DIST)/examples/Stocks/obj
-	rm -Rf $(DIST)/examples/Stocks/*.pidb
-	rm -Rf $(DIST)/examples/Stocks/*.userprefs
-	rm -Rf $(DIST)/examples/StocksTouch/.svn
-	rm -Rf $(DIST)/examples/StocksTouch/bin
-	rm -Rf $(DIST)/examples/StocksTouch/obj
-	rm -Rf $(DIST)/examples/StocksTouch/*.pidb
-	rm -Rf $(DIST)/examples/StocksTouch/*.userprefs
-	rm -Rf $(DIST)/.DS_Store
-	zip -9 -r $(DIST).zip $(DIST)
-	rm -Rf $(DIST)
+nuget: pclnuget basenuget sqlciphernuget staticnuget
+
+pclnuget: nuget/SQLite-net-std/SQLite-net-std.csproj $(SRC)
+	dotnet pack -c Release -o $(PACKAGES_OUT) $<
+
+basenuget: nuget/SQLite-net-base/SQLite-net-base.csproj $(SRC)
+	dotnet pack -c Release -o $(PACKAGES_OUT) $<
+
+sqlciphernuget: nuget/SQLite-net-sqlcipher/SQLite-net-sqlcipher.csproj $(SRC)
+	dotnet pack -c Release -o $(PACKAGES_OUT) $<
+
+staticnuget: nuget/SQLite-net-static/SQLite-net-static.csproj $(SRC)
+	dotnet pack -c Release -o $(PACKAGES_OUT) $<
+
+codecoverage:
+	cd tests/SQLite.Tests && dotnet test /p:AltCover=true /p:AltCoverForce=true "/p:AltCoverTypeFilter=SQLite.Tests.*" && reportgenerator -reports:coverage.xml -targetdir:./CoverageReport
